@@ -60,8 +60,8 @@ struct ena_stats {
 
 static const struct ena_stats ena_stats_global_strings[] = {
 	ENA_STAT_GLOBAL_ENTRY(tx_timeout),
-	ENA_STAT_GLOBAL_ENTRY(io_suspend),
-	ENA_STAT_GLOBAL_ENTRY(io_resume),
+	ENA_STAT_GLOBAL_ENTRY(suspend),
+	ENA_STAT_GLOBAL_ENTRY(resume),
 	ENA_STAT_GLOBAL_ENTRY(wd_expired),
 	ENA_STAT_GLOBAL_ENTRY(interface_up),
 	ENA_STAT_GLOBAL_ENTRY(interface_down),
@@ -81,6 +81,7 @@ static const struct ena_stats ena_stats_tx_strings[] = {
 	ENA_STAT_TX_ENTRY(doorbells),
 	ENA_STAT_TX_ENTRY(prepare_ctx_err),
 	ENA_STAT_TX_ENTRY(bad_req_id),
+	ENA_STAT_TX_ENTRY(missed_tx),
 };
 
 static const struct ena_stats ena_stats_rx_strings[] = {
@@ -93,11 +94,13 @@ static const struct ena_stats ena_stats_rx_strings[] = {
 	ENA_STAT_RX_ENTRY(dma_mapping_err),
 	ENA_STAT_RX_ENTRY(bad_desc_num),
 	ENA_STAT_RX_ENTRY(rx_copybreak_pkt),
-#ifdef CONFIG_NET_RX_BUSY_POLL
+#if ENA_BUSY_POLL_SUPPORT
 	ENA_STAT_RX_ENTRY(bp_yield),
 	ENA_STAT_RX_ENTRY(bp_missed),
 	ENA_STAT_RX_ENTRY(bp_cleaned),
 #endif
+	ENA_STAT_RX_ENTRY(bad_req_id),
+	ENA_STAT_RX_ENTRY(empty_rx_ring),
 };
 
 static const struct ena_stats ena_stats_ena_com_strings[] = {
@@ -561,12 +564,8 @@ static int ena_get_rss_hash(struct ena_com_dev *ena_dev,
 	}
 
 	rc = ena_com_get_hash_ctrl(ena_dev, proto, &hash_fields);
-	if (rc) {
-		/* If device don't have permission, return unsupported */
-		if (rc == -EPERM)
-			rc = -EOPNOTSUPP;
+	if (rc)
 		return rc;
-	}
 
 	cmd->data = ena_flow_hash_to_flow_type(hash_fields);
 
@@ -634,11 +633,16 @@ static int ena_set_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *info)
 		rc = -EOPNOTSUPP;
 	}
 
-	return (rc == -EPERM) ? -EOPNOTSUPP : rc;
+	return rc;
 }
 
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 2, 0)
+static int ena_get_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *info,
+			 void *rules)
+#else
 static int ena_get_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *info,
 			 u32 *rules)
+#endif
 {
 	struct ena_adapter *adapter = netdev_priv(netdev);
 	int rc = 0;
@@ -660,7 +664,7 @@ static int ena_get_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *info,
 		rc = -EOPNOTSUPP;
 	}
 
-	return (rc == -EPERM) ? -EOPNOTSUPP : rc;
+	return rc;
 }
 #endif /* ETHTOOL_GRXRINGS */
 
@@ -830,6 +834,7 @@ static int ena_set_rxfh(struct net_device *netdev, const u32 *indir)
 }
 #endif /* Kernel > 3.16 */
 #endif /* ETHTOOL_GRXFH */
+#ifndef HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT
 
 #ifdef ETHTOOL_SCHANNELS
 static void ena_get_channels(struct net_device *netdev,
@@ -837,8 +842,8 @@ static void ena_get_channels(struct net_device *netdev,
 {
 	struct ena_adapter *adapter = netdev_priv(netdev);
 
-	channels->max_rx = ENA_MAX_NUM_IO_QUEUES;
-	channels->max_tx = ENA_MAX_NUM_IO_QUEUES;
+	channels->max_rx = adapter->num_queues;
+	channels->max_tx = adapter->num_queues;
 	channels->max_other = 0;
 	channels->max_combined = 0;
 	channels->rx_count = adapter->num_queues;
@@ -848,6 +853,7 @@ static void ena_get_channels(struct net_device *netdev,
 }
 #endif /* ETHTOOL_SCHANNELS */
 
+#endif /* HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)
 static int ena_get_tunable(struct net_device *netdev,
 			   const struct ethtool_tunable *tuna, void *data)
@@ -924,9 +930,11 @@ static const struct ethtool_ops ena_ethtool_ops = {
 	.get_rxfh_indir		= ena_get_rxfh,
 	.set_rxfh_indir		= ena_set_rxfh,
 #endif /* >= 3.8.0 */
+#ifndef HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT
 #ifdef ETHTOOL_SCHANNELS
 	.get_channels		= ena_get_channels,
 #endif /* ETHTOOL_SCHANNELS */
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)
 	.get_tunable		= ena_get_tunable,
 	.set_tunable		= ena_set_tunable,

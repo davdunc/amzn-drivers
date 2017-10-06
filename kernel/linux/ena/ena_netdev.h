@@ -39,27 +39,31 @@
 #include <linux/interrupt.h>
 #include <linux/netdevice.h>
 #include <linux/skbuff.h>
+#include <linux/u64_stats_sync.h>
 
 #include "kcompat.h"
 #include "ena_com.h"
 #include "ena_eth_com.h"
 
 #define DRV_MODULE_VER_MAJOR	1
-#define DRV_MODULE_VER_MINOR	1
-#define DRV_MODULE_VER_SUBMINOR 2
+#define DRV_MODULE_VER_MINOR	3
+#define DRV_MODULE_VER_SUBMINOR 0
 
 #define DRV_MODULE_NAME		"ena"
 #ifndef DRV_MODULE_VERSION
 #define DRV_MODULE_VERSION \
 	__stringify(DRV_MODULE_VER_MAJOR) "."	\
 	__stringify(DRV_MODULE_VER_MINOR) "."	\
-	__stringify(DRV_MODULE_VER_SUBMINOR)
+	__stringify(DRV_MODULE_VER_SUBMINOR) "g"
 #endif
 
 #define DEVICE_NAME	"Elastic Network Adapter (ENA)"
 
 /* 1 for AENQ + ADMIN */
-#define ENA_MAX_MSIX_VEC(io_queues)	(1 + (io_queues))
+#define ENA_ADMIN_MSIX_VEC		1
+#define ENA_MAX_MSIX_VEC(io_queues)	(ENA_ADMIN_MSIX_VEC + (io_queues))
+
+#define ENA_MIN_MSIX_VEC		2
 
 #define ENA_REG_BAR			0
 #define ENA_MEM_BAR			2
@@ -136,7 +140,9 @@ struct ena_napi {
 	struct napi_struct napi ____cacheline_aligned;
 	struct ena_ring *tx_ring;
 	struct ena_ring *rx_ring;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
 	atomic_t unmask_interrupt;
+#endif
 	u32 qid;
 };
 
@@ -184,6 +190,7 @@ struct ena_stats_tx {
 	u64 tx_poll;
 	u64 doorbells;
 	u64 bad_req_id;
+	u64 missed_tx;
 };
 
 struct ena_stats_rx {
@@ -196,16 +203,24 @@ struct ena_stats_rx {
 	u64 dma_mapping_err;
 	u64 bad_desc_num;
 	u64 rx_copybreak_pkt;
-#ifdef CONFIG_NET_RX_BUSY_POLL
+#if ENA_BUSY_POLL_SUPPORT
 	u64 bp_yield;
 	u64 bp_missed;
 	u64 bp_cleaned;
 #endif
+	u64 bad_req_id;
+	u64 empty_rx_ring;
 };
 
 struct ena_ring {
-	/* Holds the empty requests for TX out of order completions */
-	u16 *free_tx_ids;
+	union {
+		/* Holds the empty requests for TX/RX
+		 * out of order completions
+		 */
+		u16 *free_tx_ids;
+		u16 *free_rx_ids;
+	};
+
 	union {
 		struct ena_tx_buffer *tx_buffer_info;
 		struct ena_rx_buffer *rx_buffer_info;
@@ -248,12 +263,13 @@ struct ena_ring {
 		struct ena_stats_tx tx_stats;
 		struct ena_stats_rx rx_stats;
 	};
-#ifdef CONFIG_NET_RX_BUSY_POLL
+	int empty_rx_queue;
+#if ENA_BUSY_POLL_SUPPORT
 	atomic_t bp_state;
 #endif
 } ____cacheline_aligned;
 
-#ifdef CONFIG_NET_RX_BUSY_POLL
+#if ENA_BUSY_POLL_SUPPORT
 enum ena_busy_poll_state_t {
 	ENA_BP_STATE_IDLE = 0,
 	ENA_BP_STATE_NAPI,
@@ -263,8 +279,8 @@ enum ena_busy_poll_state_t {
 #endif
 struct ena_stats_dev {
 	u64 tx_timeout;
-	u64 io_suspend;
-	u64 io_resume;
+	u64 suspend;
+	u64 resume;
 	u64 wd_expired;
 	u64 interface_up;
 	u64 interface_down;
@@ -295,7 +311,9 @@ struct ena_adapter {
 
 	int num_queues;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
 	struct msix_entry *msix_entries;
+#endif
 	int msix_vecs;
 
 	u32 missing_tx_completion_threshold;
@@ -333,11 +351,10 @@ struct ena_adapter {
 
 	/* timer service */
 	struct work_struct reset_task;
-	struct work_struct suspend_io_task;
-	struct work_struct resume_io_task;
 	struct timer_list timer_service;
 
 	bool wd_state;
+	bool dev_up_before_reset;
 	unsigned long last_keep_alive_jiffies;
 
 	struct u64_stats_sync syncp;
@@ -345,6 +362,8 @@ struct ena_adapter {
 
 	/* last queue index that was checked for uncompleted tx packets */
 	u32 last_monitored_tx_qid;
+
+	enum ena_regs_reset_reason_types reset_reason;
 };
 
 void ena_set_ethtool_ops(struct net_device *netdev);
@@ -355,7 +374,7 @@ void ena_dump_stats_to_buf(struct ena_adapter *adapter, u8 *buf);
 
 int ena_get_sset_count(struct net_device *netdev, int sset);
 
-#ifdef CONFIG_NET_RX_BUSY_POLL
+#if ENA_BUSY_POLL_SUPPORT
 static inline void ena_bp_init_lock(struct ena_ring *rx_ring)
 {
 	/* reset state to idle */
@@ -455,6 +474,6 @@ static inline bool ena_bp_disable(struct ena_ring *rx_ring)
 {
 	return true;
 }
-#endif /* CONFIG_NET_RX_BUSY_POLL */
+#endif /* ENA_BUSY_POLL_SUPPORT */
 
 #endif /* !(ENA_H) */

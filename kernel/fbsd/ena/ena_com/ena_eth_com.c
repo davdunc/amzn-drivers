@@ -1,33 +1,34 @@
-/*
- * Copyright 2015 Amazon.com, Inc. or its affiliates.
+/*-
+ * BSD LICENSE
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * BSD license below:
+ * Copyright (c) 2015-2017 Amazon.com, Inc. or its affiliates.
+ * All rights reserved.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
+ * * Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in
+ * the documentation and/or other materials provided with the
+ * distribution.
+ * * Neither the name of copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
  *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "ena_eth_com.h"
@@ -109,8 +110,8 @@ static inline int ena_com_write_header(struct ena_com_io_sq *io_sq,
 		return 0;
 
 	if (unlikely(!io_sq->header_addr)) {
-		pr_err("Push buffer header ptr is NULL\n");
-		return -EINVAL;
+		ena_trc_err("Push buffer header ptr is NULL\n");
+		return ENA_COM_INVAL;
 	}
 
 	memcpy_toio(dev_head_addr, head_src, header_len);
@@ -154,8 +155,8 @@ static inline u16 ena_com_cdesc_rx_pkt_get(struct ena_com_io_cq *io_cq,
 		io_cq->cur_rx_pkt_cdesc_count = 0;
 		io_cq->cur_rx_pkt_cdesc_start_idx = head_masked;
 
-		pr_debug("ena q_id: %d packets were completed. first desc idx %u descs# %d\n",
-			 io_cq->qid, *first_cdesc_idx, count);
+		ena_trc_dbg("ena q_id: %d packets were completed. first desc idx %u descs# %d\n",
+			    io_cq->qid, *first_cdesc_idx, count);
 	} else {
 		io_cq->cur_rx_pkt_cdesc_count += count;
 		count = 0;
@@ -250,10 +251,14 @@ static inline void ena_com_rx_set_flags(struct ena_com_rx_ctx *ena_rx_ctx,
 		(cdesc->status & ENA_ETH_IO_RX_CDESC_BASE_IPV4_FRAG_MASK) >>
 		ENA_ETH_IO_RX_CDESC_BASE_IPV4_FRAG_SHIFT;
 
-	pr_debug("ena_rx_ctx->l3_proto %d ena_rx_ctx->l4_proto %d\nena_rx_ctx->l3_csum_err %d ena_rx_ctx->l4_csum_err %d\nhash frag %d frag: %d cdesc_status: %x\n",
-		 ena_rx_ctx->l3_proto, ena_rx_ctx->l4_proto,
-		 ena_rx_ctx->l3_csum_err, ena_rx_ctx->l4_csum_err,
-		 ena_rx_ctx->hash, ena_rx_ctx->frag, cdesc->status);
+	ena_trc_dbg("ena_rx_ctx->l3_proto %d ena_rx_ctx->l4_proto %d\nena_rx_ctx->l3_csum_err %d ena_rx_ctx->l4_csum_err %d\nhash frag %d frag: %d cdesc_status: %x\n",
+		    ena_rx_ctx->l3_proto,
+		    ena_rx_ctx->l4_proto,
+		    ena_rx_ctx->l3_csum_err,
+		    ena_rx_ctx->l4_csum_err,
+		    ena_rx_ctx->hash,
+		    ena_rx_ctx->frag,
+		    cdesc->status);
 }
 
 /*****************************************************************************/
@@ -273,18 +278,19 @@ int ena_com_prepare_tx(struct ena_com_io_sq *io_sq,
 	bool have_meta;
 	u64 addr_hi;
 
-	WARN(io_sq->direction != ENA_COM_IO_QUEUE_DIRECTION_TX, "wrong Q type");
+	ENA_WARN(io_sq->direction != ENA_COM_IO_QUEUE_DIRECTION_TX,
+		 "wrong Q type");
 
 	/* num_bufs +1 for potential meta desc */
 	if (ena_com_sq_empty_space(io_sq) < (num_bufs + 1)) {
-		pr_err("Not enough space in the tx queue\n");
-		return -ENOMEM;
+		ena_trc_err("Not enough space in the tx queue\n");
+		return ENA_COM_NO_MEM;
 	}
 
 	if (unlikely(header_len > io_sq->tx_max_header_size)) {
-		pr_err("header size is too large %d max header: %d\n",
-		       header_len, io_sq->tx_max_header_size);
-		return -EINVAL;
+		ena_trc_err("header size is too large %d max header: %d\n",
+			    header_len, io_sq->tx_max_header_size);
+		return ENA_COM_INVAL;
 	}
 
 	/* start with pushing the header (if needed) */
@@ -385,7 +391,7 @@ int ena_com_prepare_tx(struct ena_com_io_sq *io_sq,
 
 	ena_com_sq_update_tail(io_sq);
 
-	total_desc = max_t(u16, num_bufs, 1);
+	total_desc = ENA_MAX16(num_bufs, 1);
 	total_desc += have_meta ? 1 : 0;
 
 	*nb_hw_desc = total_desc;
@@ -402,7 +408,8 @@ int ena_com_rx_pkt(struct ena_com_io_cq *io_cq,
 	u16 nb_hw_desc;
 	u16 i;
 
-	WARN(io_cq->direction != ENA_COM_IO_QUEUE_DIRECTION_RX, "wrong Q type");
+	ENA_WARN(io_cq->direction != ENA_COM_IO_QUEUE_DIRECTION_RX,
+		 "wrong Q type");
 
 	nb_hw_desc = ena_com_cdesc_rx_pkt_get(io_cq, &cdesc_idx);
 	if (nb_hw_desc == 0) {
@@ -410,13 +417,13 @@ int ena_com_rx_pkt(struct ena_com_io_cq *io_cq,
 		return 0;
 	}
 
-	pr_debug("fetch rx packet: queue %d completed desc: %d\n", io_cq->qid,
-		 nb_hw_desc);
+	ena_trc_dbg("fetch rx packet: queue %d completed desc: %d\n",
+		    io_cq->qid, nb_hw_desc);
 
 	if (unlikely(nb_hw_desc > ena_rx_ctx->max_bufs)) {
-		pr_err("Too many RX cdescs (%d) > MAX(%d)\n", nb_hw_desc,
-		       ena_rx_ctx->max_bufs);
-		return -ENOSPC;
+		ena_trc_err("Too many RX cdescs (%d) > MAX(%d)\n",
+			    nb_hw_desc, ena_rx_ctx->max_bufs);
+		return ENA_COM_NO_SPACE;
 	}
 
 	for (i = 0; i < nb_hw_desc; i++) {
@@ -430,8 +437,8 @@ int ena_com_rx_pkt(struct ena_com_io_cq *io_cq,
 	/* Update SQ head ptr */
 	io_sq->next_to_comp += nb_hw_desc;
 
-	pr_debug("[%s][QID#%d] Updating SQ head to: %d\n", __func__, io_sq->qid,
-		 io_sq->next_to_comp);
+	ena_trc_dbg("[%s][QID#%d] Updating SQ head to: %d\n", __func__,
+		    io_sq->qid, io_sq->next_to_comp);
 
 	/* Get rx flags from the last pkt */
 	ena_com_rx_set_flags(ena_rx_ctx, cdesc);
@@ -446,10 +453,11 @@ int ena_com_add_single_rx_desc(struct ena_com_io_sq *io_sq,
 {
 	struct ena_eth_io_rx_desc *desc;
 
-	WARN(io_sq->direction != ENA_COM_IO_QUEUE_DIRECTION_RX, "wrong Q type");
+	ENA_WARN(io_sq->direction != ENA_COM_IO_QUEUE_DIRECTION_RX,
+		 "wrong Q type");
 
 	if (unlikely(ena_com_sq_empty_space(io_sq) == 0))
-		return -ENOSPC;
+		return ENA_COM_NO_SPACE;
 
 	desc = get_sq_desc(io_sq);
 	memset(desc, 0x0, sizeof(struct ena_eth_io_rx_desc));
@@ -491,12 +499,7 @@ int ena_com_tx_comp_req_id_get(struct ena_com_io_cq *io_cq, u16 *req_id)
 	 */
 	cdesc_phase = READ_ONCE(cdesc->flags) & ENA_ETH_IO_TX_CDESC_PHASE_MASK;
 	if (cdesc_phase != expected_phase)
-		return -EAGAIN;
-
-	if (unlikely(cdesc->req_id >= io_cq->q_depth)) {
-		pr_err("Invalid req id %d\n", cdesc->req_id);
-		return -EINVAL;
-	}
+		return ENA_COM_TRY_AGAIN;
 
 	ena_com_cq_inc_head(io_cq);
 

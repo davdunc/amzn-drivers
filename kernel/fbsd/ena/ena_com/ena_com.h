@@ -1,55 +1,45 @@
-/*
- * Copyright 2015 Amazon.com, Inc. or its affiliates.
+/*-
+ * BSD LICENSE
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * BSD license below:
+ * Copyright (c) 2015-2017 Amazon.com, Inc. or its affiliates.
+ * All rights reserved.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
+ * * Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in
+ * the documentation and/or other materials provided with the
+ * distribution.
+ * * Neither the name of copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
  *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef ENA_COM
 #define ENA_COM
 
-#include <linux/compiler.h>
-#include <linux/delay.h>
-#include <linux/dma-mapping.h>
-#include <linux/gfp.h>
-#include <linux/sched.h>
-#include <linux/spinlock.h>
-#include <linux/types.h>
-#include <linux/wait.h>
-
-#include "kcompat.h"
-#include "ena_common_defs.h"
-#include "ena_admin_defs.h"
-#include "ena_eth_io_defs.h"
-#include "ena_regs_defs.h"
-
-#undef pr_fmt
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#ifndef ENA_INTERNAL
+#include "ena_plat.h"
+#else
+#include "ena_plat.h"
+#include "ena_includes.h"
+#endif
 
 #define ENA_MAX_NUM_IO_QUEUES		128U
 /* We need to queues for each IO (on for Tx and one for Rx) */
@@ -94,7 +84,11 @@
 #define ENA_INTR_INITIAL_RX_INTERVAL_USECS		4
 #define ENA_INTR_DELAY_OLD_VALUE_WEIGHT			6
 #define ENA_INTR_DELAY_NEW_VALUE_WEIGHT			4
+#ifdef MAINLINE
+#define ENA_INTR_MODER_LEVEL_STRIDE			2
+#else
 #define ENA_INTR_MODER_LEVEL_STRIDE			1
+#endif
 #define ENA_INTR_BYTE_COUNT_NOT_SUPPORTED		0xFFFFFF
 
 #define ENA_HW_HINTS_NO_TIMEOUT				0xFFFF
@@ -133,6 +127,7 @@ struct ena_com_io_desc_addr {
 	u8 __iomem *pbuf_dev_addr; /* LLQ address */
 	u8 *virt_addr;
 	dma_addr_t phys_addr;
+	ena_mem_handle_t mem_handle;
 };
 
 struct ena_com_tx_meta {
@@ -144,7 +139,9 @@ struct ena_com_tx_meta {
 
 struct ena_com_io_cq {
 	struct ena_com_io_desc_addr cdesc_addr;
+#ifndef MAINLINE
 	void *bus;
+#endif
 
 	/* Interrupt unmask register */
 	u32 __iomem *unmask_reg;
@@ -182,7 +179,9 @@ struct ena_com_io_cq {
 
 struct ena_com_io_sq {
 	struct ena_com_io_desc_addr desc_addr;
+#ifndef MAINLINE
 	void *bus;
+#endif
 
 	u32 __iomem *db_addr;
 	u8 __iomem *header_addr;
@@ -207,6 +206,7 @@ struct ena_com_io_sq {
 
 struct ena_com_admin_cq {
 	struct ena_admin_acq_entry *entries;
+	ena_mem_handle_t mem_handle;
 	dma_addr_t dma_addr;
 
 	u16 head;
@@ -215,6 +215,7 @@ struct ena_com_admin_cq {
 
 struct ena_com_admin_sq {
 	struct ena_admin_aq_entry *entries;
+	ena_mem_handle_t mem_handle;
 	dma_addr_t dma_addr;
 
 	u32 __iomem *db_addr;
@@ -235,8 +236,10 @@ struct ena_com_stats_admin {
 
 struct ena_com_admin_queue {
 	void *q_dmadev;
+#ifndef MAINLINE
 	void *bus;
-	spinlock_t q_lock; /* spinlock for the admin queue */
+#endif
+	ena_spinlock_t q_lock; /* spinlock for the admin queue */
 
 	struct ena_comp_ctx *comp_ctx;
 	u32 completion_timeout;
@@ -255,7 +258,7 @@ struct ena_com_admin_queue {
 	bool running_state;
 
 	/* Count the number of outstanding admin commands */
-	atomic_t outstanding_cmds;
+	ena_atomic32_t outstanding_cmds;
 
 	struct ena_com_stats_admin stats;
 };
@@ -267,6 +270,7 @@ struct ena_com_aenq {
 	u8 phase;
 	struct ena_admin_aenq_entry *entries;
 	dma_addr_t dma_addr;
+	ena_mem_handle_t mem_handle;
 	u16 q_depth;
 	struct ena_aenq_handlers *aenq_handlers;
 };
@@ -274,11 +278,12 @@ struct ena_com_aenq {
 struct ena_com_mmio_read {
 	struct ena_admin_ena_mmio_req_read_less_resp *read_resp;
 	dma_addr_t read_resp_dma_addr;
+	ena_mem_handle_t read_resp_mem_handle;
 	u32 reg_read_to; /* in us */
 	u16 seq_num;
 	bool readless_supported;
 	/* spin lock to ensure a single outstanding read */
-	spinlock_t lock;
+	ena_spinlock_t lock;
 };
 
 struct ena_rss {
@@ -286,17 +291,20 @@ struct ena_rss {
 	u16 *host_rss_ind_tbl;
 	struct ena_admin_rss_ind_table_entry *rss_ind_tbl;
 	dma_addr_t rss_ind_tbl_dma_addr;
+	ena_mem_handle_t rss_ind_tbl_mem_handle;
 	u16 tbl_log_size;
 
 	/* Hash key */
 	enum ena_admin_hash_functions hash_func;
 	struct ena_admin_feature_rss_flow_hash_control *hash_key;
 	dma_addr_t hash_key_dma_addr;
+	ena_mem_handle_t hash_key_mem_handle;
 	u32 hash_init_val;
 
 	/* Flow Control */
 	struct ena_admin_feature_rss_hash_control *hash_ctrl;
 	dma_addr_t hash_ctrl_dma_addr;
+	ena_mem_handle_t hash_ctrl_mem_handle;
 
 };
 
@@ -304,11 +312,13 @@ struct ena_host_attribute {
 	/* Debug area */
 	u8 *debug_area_virt_addr;
 	dma_addr_t debug_area_dma_addr;
+	ena_mem_handle_t debug_area_dma_handle;
 	u32 debug_area_size;
 
 	/* Host information */
 	struct ena_admin_host_info *host_info;
 	dma_addr_t host_info_dma_addr;
+	ena_mem_handle_t host_info_dma_handle;
 };
 
 /* Each ena_dev is a PCI function. */
@@ -320,8 +330,9 @@ struct ena_com_dev {
 	u8 __iomem *reg_bar;
 	void __iomem *mem_bar;
 	void *dmadev;
+#ifndef MAINLINE
 	void *bus;
-
+#endif
 	enum ena_admin_placement_policy_type tx_mem_queue_type;
 	u32 tx_max_header_size;
 	u16 stats_func; /* Selected function for extended statistic dump */
@@ -368,6 +379,9 @@ struct ena_aenq_handlers {
 
 /*****************************************************************************/
 /*****************************************************************************/
+#if defined(__cplusplus)
+extern "C" {
+#endif
 
 /* ena_com_mmio_reg_read_request_init - Init the mmio reg read mechanism
  * @ena_dev: ENA communication layer struct
@@ -424,12 +438,10 @@ void ena_com_admin_destroy(struct ena_com_dev *ena_dev);
 
 /* ena_com_dev_reset - Perform device FLR to the device.
  * @ena_dev: ENA communication layer struct
- * @reset_reason: Specify what is the trigger for the reset in case of an error.
  *
  * @return - 0 on success, negative value on failure.
  */
-int ena_com_dev_reset(struct ena_com_dev *ena_dev,
-		      enum ena_regs_reset_reason_types reset_reason);
+int ena_com_dev_reset(struct ena_com_dev *ena_dev);
 
 /* ena_com_create_io_queue - Create io queue.
  * @ena_dev: ENA communication layer struct
@@ -985,8 +997,8 @@ static inline void ena_com_calculate_interrupt_delay(struct ena_com_dev *ena_dev
 		return;
 
 	curr_moder_idx = (enum ena_intr_moder_level)(*moder_tbl_idx);
-	if (unlikely(curr_moder_idx >= ENA_INTR_MAX_NUM_OF_LEVELS)) {
-		pr_err("Wrong moderation index %u\n", curr_moder_idx);
+	if (unlikely(curr_moder_idx >=  ENA_INTR_MAX_NUM_OF_LEVELS)) {
+		ena_trc_err("Wrong moderation index %u\n", curr_moder_idx);
 		return;
 	}
 
@@ -1048,4 +1060,22 @@ static inline void ena_com_update_intr_reg(struct ena_eth_io_intr_reg *intr_reg,
 		intr_reg->intr_control |= ENA_ETH_IO_INTR_REG_INTR_UNMASK_MASK;
 }
 
+#ifdef ENA_DEBUG
+int ena_com_get_dev_extended_stats(struct ena_com_dev *ena_dev, char *buff,
+				   u32 len);
+
+int ena_com_extended_stats_set_func_queue(struct ena_com_dev *ena_dev,
+					  u32 funct_queue);
+
+int ena_com_set_trace(struct ena_com_dev *ena_dev, u32 severity,
+		      u32 type);
+
+void ena_com_get_trace(struct ena_com_dev *ena_dev, u32 *severity,
+		       u32 *type);
+
+int ena_com_trace_usage(char *buf, size_t size);
+#endif /* ENA_DEBUG */
+#if defined(__cplusplus)
+}
+#endif /* __cplusplus */
 #endif /* !(ENA_COM) */

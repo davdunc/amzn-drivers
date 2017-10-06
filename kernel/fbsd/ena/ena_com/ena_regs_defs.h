@@ -1,66 +1,38 @@
-/*
- * Copyright 2015 - 2016 Amazon.com, Inc. or its affiliates.
+/*-
+ * BSD LICENSE
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * BSD license below:
+ * Copyright (c) 2015-2017 Amazon.com, Inc. or its affiliates.
+ * All rights reserved.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
+ * * Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in
+ * the documentation and/or other materials provided with the
+ * distribution.
+ * * Neither the name of copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
  *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #ifndef _ENA_REGS_H_
 #define _ENA_REGS_H_
-
-enum ena_regs_reset_reason_types {
-	ENA_REGS_RESET_NORMAL			= 0,
-
-	ENA_REGS_RESET_KEEP_ALIVE_TO		= 1,
-
-	ENA_REGS_RESET_ADMIN_TO			= 2,
-
-	ENA_REGS_RESET_MISS_TX_CMPL		= 3,
-
-	ENA_REGS_RESET_INV_RX_REQ_ID		= 4,
-
-	ENA_REGS_RESET_INV_TX_REQ_ID		= 5,
-
-	ENA_REGS_RESET_TOO_MANY_RX_DESCS	= 6,
-
-	ENA_REGS_RESET_INIT_ERR			= 7,
-
-	ENA_REGS_RESET_DRIVER_INVALID_STATE	= 8,
-
-	ENA_REGS_RESET_OS_TRIGGER		= 9,
-
-	ENA_REGS_RESET_OS_NETDEV_WD		= 10,
-
-	ENA_REGS_RESET_SHUTDOWN			= 11,
-
-	ENA_REGS_RESET_USER_TRIGGER		= 12,
-
-	ENA_REGS_RESET_GENERIC			= 13,
-};
 
 /* ena_registers offsets */
 #define ENA_REGS_VERSION_OFF		0x0
@@ -134,8 +106,6 @@ enum ena_regs_reset_reason_types {
 #define ENA_REGS_DEV_CTL_QUIESCENT_MASK		0x4
 #define ENA_REGS_DEV_CTL_IO_RESUME_SHIFT		3
 #define ENA_REGS_DEV_CTL_IO_RESUME_MASK		0x8
-#define ENA_REGS_DEV_CTL_RESET_REASON_SHIFT		28
-#define ENA_REGS_DEV_CTL_RESET_REASON_MASK		0xf0000000
 
 /* dev_sts register */
 #define ENA_REGS_DEV_STS_READY_MASK		0x1

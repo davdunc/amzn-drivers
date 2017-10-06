@@ -1,5 +1,88 @@
 ==== ENA Driver Release notes ====
 
+
+---- Supported kernels/distributions ----
+
+ENA driver is supported on kernels 3.2 and above
+with an addition of kernel 2.6.32.
+
+The driver was verified on the following distributions:
+
+Red Hat:
+* Red Hat Enterprise Linux 6.7
+* Red Hat Enterprise Linux 6.8
+* Red Hat Enterprise Linux 6.9
+* Red Hat Enterprise Linux 7.2
+* Red Hat Enterprise Linux 7.3
+* Red Hat Enterprise Linux 7.4
+
+Ubuntu:
+* ubuntu Trusty 14.04 amd64 server
+* Ubuntu Xenial 16.04 amd64 server
+* Ubuntu Yakkety 16.10 amd64 server
+* Ubuntu Zesty 17.04 amd64 server
+
+Amazon Linux:
+* Amazon Linux AMI 2017.03
+* Amazon Linux AMI 2016.09.1
+
+Cent OS:
+* Cent OS 6
+* Cent OS 7
+
+Suse:
+SUSE Linux Enterprise Server 12 SP2
+
+---- r1.3.0 ----
+New Features:
+* add support for driver hibernation -add PM callbacks to support
+	suspend/resume.
+* improve driver boot time. - Reduce sleeps when driver is working in
+	polling mode.
+* add statistics for missing tx packets.
+
+Bug Fixes:
+* fix kernel panic when register memory bar map fails.
+* driver used to report wrong value for max Tx/Rx queues (always reported
+	128 queues)
+* fix compilation errors for RedHat 7.4
+* fix ethtool statistics counters overflow for kernels below 3.2.36
+
+---- r1.2.0 ----
+New Features:
+* add support for receive path filling the previously submitted free buffer
+	in out of order.
+* update enable PCI to use newly introduced IRQ functions in linux.
+* refactor check_for_missing_tx_completions to reduce the code length of this
+	function.
+* remove redundant call for napi_hash_add() in kernels later than version 4.5.
+* add reset reason for each device FLR.
+
+Bug Fixes:
+* fix compilation error in kernel 4.11
+* fix uncompleted polling admin command false alarm.
+* fix theoretical case - the drive might hang after consecutive open/close
+	interface.
+* fix super rare race condition between submit and complete admin commands.
+	"Completion context is occupied" error message will appear when this
+	bug is reproduce.
+* unmap the device bars on driver removal
+* fix memory leak in ena_enable_msix()
+* fix napi_complete_done() wrong return value
+* fix race in  polling mode in kernels 4.5 - 4.9.
+	When CONFIG_RX_BUSY_POLL is set and busy poll is enabled,
+	there is a potential case where the napi handler will not unmask the
+	MSI-X interrupt leading to a case where the interrupt is left unmask
+	and nobody schedule napi.
+* disable admin queue msix while working in polling mode
+* fix theoretical bug - on systems with extremely low memory, the napi handler
+	might run out ram and failed to allocate new pages for Rx buffers.
+	If the queue was empty when the scenario occur and napi completed
+	his task nobody will reschedule napi and refill the Rx queue.
+
+---- r1.1.3 ----
+* Add support for RHEL 6.7/6.8 and 7.3
+
 ---- r1.1.2 ----
 
 New Features:
@@ -20,10 +103,10 @@ Bug Fixes:
 	while the OS is running.
 * Reorder the initialization of the workqueues and the timer service
 	In the highly unlikely event of driver failing on probe the reset workqueue
-	cause access to freed aread.
+	cause access to freed area.
 * Remove redundant logic in napi callback for busy poll mode.
 	Impact the performance on kernel >= 4.5 when CONFIG_NET_RX_BUSY_POLL is enable
-		and socket is openned with SO_BUSY_POLL
+		and socket is opened with SO_BUSY_POLL
 * In RSS hash configuration add missing variable initialization.
 * Fix type mismatch in structs initialization
 * Fix kernel starvation when get_statistics is called from atomic context
