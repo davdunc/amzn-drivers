@@ -31,7 +31,9 @@ Cent OS:
 * Cent OS 7
 
 Suse:
-SUSE Linux Enterprise Server 12 SP2
+
+* SUSE Linux Enterprise Server 12 SP2
+* SUSE Linux Enterprise Server 12 SP3
 
 ---- r1.3.0 ----
 New Features:
