@@ -38,7 +38,9 @@ Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
 
 #ifndef LINUX_VERSION_CODE
 #include <linux/version.h>
-#else
+#endif
+
+#ifndef KERNEL_VERSION
 #define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))
 #endif
 
@@ -76,22 +78,34 @@ Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
 #include <linux/sizes.h>
 #endif
 
+/* For ACCESS_ONCE, WRITE_ONCE and READ_ONCE macros */
+#include<linux/compiler.h>
+
+#ifndef SZ_256
+#define SZ_256 0x0000100
+#endif
+
 #ifndef SZ_4K
 #define SZ_4K 0x00001000
 #endif
 
-#ifndef SZ_256
-#define SZ_256 0x0000100
+#ifndef SZ_16K
+#define SZ_16K 0x00004000
 #endif
 
 #ifdef HAVE_POLL_CONTROLLER
 #define CONFIG_NET_POLL_CONTROLLER
 #endif
 
-#define ENA_BUSY_POLL_SUPPORT defined(CONFIG_NET_RX_BUSY_POLL) && \
+#ifndef __GFP_COLD
+#define __GFP_COLD 0
+#endif
+
+#if defined(CONFIG_NET_RX_BUSY_POLL) && \
 	LINUX_VERSION_CODE < KERNEL_VERSION(4,5,0) && \
 	LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
-
+#define ENA_BUSY_POLL_SUPPORT
+#endif
 /******************************************************************************/
 /************************** Ubuntu macros *************************************/
 /******************************************************************************/
@@ -114,14 +128,7 @@ Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
  *  3.16.0-23-generic
  * ABI is 23
  */
-#ifndef UTS_RELEASE
-#define UTS_UBUNTU_RELEASE_ABI 0
-#define UBUNTU_VERSION_CODE 0
-#else
-
-#ifndef UTS_UBUNTU_RELEASE_ABI
-#define UTS_UBUNTU_RELEASE_ABI 0
-#endif /* UTS_UBUNTU_RELEASE_ABI  is not defined in kernel < 3.16 */
+#ifdef UTS_UBUNTU_RELEASE_ABI
 
 #if UTS_UBUNTU_RELEASE_ABI > 255
 #undef UTS_UBUNTU_RELEASE_ABI
@@ -137,7 +144,7 @@ Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
  */
 #define UBUNTU_VERSION_CODE (((LINUX_VERSION_CODE & ~0xFF) << 8) + (UTS_UBUNTU_RELEASE_ABI))
 
-#endif /* UTS_RELEASE */
+#endif /* UTS_UBUNTU_RELEASE_ABI */
 
 /* Note that the 3rd digit is always zero, and will be ignored. This is
  * because Ubuntu kernels are based on x.y.0-ABI values, and while their linux
@@ -154,6 +161,9 @@ Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
 #define SLE_VERSION(a,b,c) KERNEL_VERSION(a,b,c)
 #endif
 #ifdef CONFIG_SUSE_KERNEL
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 14)
+#include <linux/suse_version.h>
+#endif
 #if ( LINUX_VERSION_CODE >= KERNEL_VERSION(3,12,28) )
 /* SLES12 is at least 3.12.28+ based */
 #define SLE_VERSION_CODE SLE_VERSION(12,0,0)
@@ -162,6 +172,9 @@ Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
 #ifndef SLE_VERSION_CODE
 #define SLE_VERSION_CODE 0
 #endif /* SLE_VERSION_CODE */
+#ifndef SUSE_VERSION
+#define SUSE_VERSION 0
+#endif /* SUSE_VERSION */
 
 
 /******************************************************************************/
@@ -204,6 +217,20 @@ Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
 #define HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT
 #endif /* RHEL >= 6.4 && RHEL < 7.0 */
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0) || \
+	(SLE_VERSION_CODE && \
+	 LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,48)))
+#define HAVE_MTU_MIN_MAX_IN_NET_DEVICE
+#endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0) || \
+     (RHEL_RELEASE_CODE && \
+      RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,5)) || \
+     (SLE_VERSION_CODE && \
+      LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,50)))
+#define NDO_GET_STATS_64_V2
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0) || \
 	(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
 #include <net/busy_poll.h>
@@ -211,7 +238,9 @@ Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
 
 /*****************************************************************************/
 #if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,37) )
-#ifndef netif_set_real_num_tx_queues
+/* The function netif_set_real_num_tx_queues() doesn't return value for
+ * kernels < 2.6.37
+ */
 static inline int _kc_netif_set_real_num_tx_queues(struct net_device *dev,
                                                    unsigned int txq)
 {
@@ -220,16 +249,7 @@ static inline int _kc_netif_set_real_num_tx_queues(struct net_device *dev,
 }
 #define netif_set_real_num_tx_queues(dev, txq) \
         _kc_netif_set_real_num_tx_queues(dev, txq)
-#endif
-#ifndef netif_set_real_num_rx_queues
-static inline int __kc_netif_set_real_num_rx_queues(struct net_device __always_unused *dev,
-                                                    unsigned int __always_unused rxq)
-{
-        return 0;
-}
-#define netif_set_real_num_rx_queues(dev, rxq) \
-        __kc_netif_set_real_num_rx_queues((dev), (rxq))
-#endif
+
 #endif /* < 2.6.37 */
 
 #if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,3,0) )
@@ -247,29 +267,10 @@ typedef u32 netdev_features_t;
 #define netdev_reset_queue(_n) do {} while (0)
 #endif
 
-#if (UBUNTU_VERSION_CODE && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,2,0,0))
-#else
-struct dev_ext_attribute {
-	struct device_attribute attr;
-	void *var;
-};
-#endif
 #endif /* < 3.3.0 */
 
 /******************************************************************************/
 #if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0) )
-#ifndef skb_add_rx_frag
-#define skb_add_rx_frag _kc_skb_add_rx_frag
-static inline void _kc_skb_add_rx_frag(struct sk_buff *skb, int i,
-				       struct page *page, int off, int size,
-				       unsigned int truesize)
-{
-	skb_fill_page_desc(skb, i, page, off, size);
-	skb->len += size;
-	skb->data_len += size;
-	skb->truesize += truesize;
-}
-#endif
 #ifdef NET_ADDR_RANDOM
 #define eth_hw_addr_random(N) do { \
 	eth_random_addr(N->dev_addr); \
@@ -342,35 +343,36 @@ static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
 	return index % n_rx_rings;
 }
 #endif
-#else /* >= 3.8.0 */
-#ifndef HAVE_SRIOV_CONFIGURE
-#define HAVE_SRIOV_CONFIGURE
-#endif
 #endif /* >= 3.8.0 */
 
-/*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,11,0) )
-#if RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
-#define HAVE_NDO_SELECT_QUEUE_ACCEL_FALLBACK
-#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,2,0))
+#define HAVE_NDO_SELECT_QUEUE_ACCEL_FALLBACK_V3
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0)) || \
+      (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,0))) || \
+      (SUSE_VERSION && ((SUSE_VERSION == 12 && SUSE_PATCHLEVEL >= 5) || \
+		        (SUSE_VERSION == 15 && SUSE_PATCHLEVEL >= 1) || \
+			(SUSE_VERSION > 15)))
+#define HAVE_NDO_SELECT_QUEUE_ACCEL_FALLBACK_V2
+#else
+
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3,11,0) && \
+      RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))) || \
+     (LINUX_VERSION_CODE >= KERNEL_VERSION(3,12,0) && \
+      SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0)) || \
+     (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)))
+#define HAVE_NDO_SELECT_QUEUE_ACCEL_FALLBACK_V1
 #endif
 
-/*****************************************************************************/
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(3,12,0) )
-#if ( SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0))
-#define HAVE_NDO_SELECT_QUEUE_ACCEL_FALLBACK
-#endif
-#endif /* >= 3.12.0 */
-
-/*****************************************************************************/
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0) )
-#if (UBUNTU_VERSION_CODE && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,13,0,24))
-#define HAVE_NDO_SELECT_QUEUE_ACCEL_FALLBACK
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+#if defined(UBUNTU_VERSION_CODE) && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,13,0,24)
+#define HAVE_NDO_SELECT_QUEUE_ACCEL_FALLBACK_V1
 #else
 #define HAVE_NDO_SELECT_QUEUE_ACCEL
 #endif
-#else
+#endif /* >= 3.13 */
+#endif /* < 4.19 */
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,13,0)
 #if BITS_PER_LONG == 32 && defined(CONFIG_SMP)
 # define u64_stats_init(syncp)  seqcount_init(syncp.seq)
 #else
@@ -380,15 +382,22 @@ static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
 #if !(SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0)) && \
 	!(RHEL_RELEASE_CODE && ((RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,8) && \
 	                        (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))) \
-                            || (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,1))))
+                            || (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,1)))) && \
+     !defined(UEK3_RELEASE)
 static inline void reinit_completion(struct completion *x)
 {
          x->done = 0;
 }
 #endif /* SLE 12 */
 
-#if (!(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,0)) && \
-     !(SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0)))
+#endif /* < 3.13.0 */
+
+#if  (( LINUX_VERSION_CODE < KERNEL_VERSION(3,13,0) ) && \
+     (!(RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,0) && \
+       RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(7,0))) \
+     && !(SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0))&& \
+     !defined(UEK3_RELEASE))) || \
+     (defined(UBUNTU_VERSION_CODE) && UBUNTU_VERSION_CODE < UBUNTU_VERSION(3,13,0,30))
 static inline int pci_enable_msix_range(struct pci_dev *dev,
 					struct msix_entry *entries,
 					int minvec,
@@ -415,12 +424,20 @@ static inline int pci_enable_msix_range(struct pci_dev *dev,
 }
 #endif
 
-#endif /* >= 3.13.0 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,13,0) && \
+    !(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static inline void *devm_kcalloc(struct device *dev,
+				 size_t n, size_t size, gfp_t flags)
+{
+	return devm_kzalloc(dev, n * size, flags | __GFP_ZERO);
+}
+#endif
 
 /*****************************************************************************/
 #if (( LINUX_VERSION_CODE < KERNEL_VERSION(3,13,8) ) && \
-     !(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,4)) && \
-     !(SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0)))
+     !RHEL_RELEASE_CODE && \
+     !(SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0))) || \
+     (defined(UBUNTU_VERSION_CODE) && UBUNTU_VERSION_CODE < UBUNTU_VERSION(3,13,0,30))
 enum pkt_hash_types {
 	PKT_HASH_TYPE_NONE,	/* Undefined type */
 	PKT_HASH_TYPE_L2,	/* Input: src_MAC, dest_MAC */
@@ -437,14 +454,10 @@ static inline void skb_set_hash(struct sk_buff *skb, __u32 hash,
 #endif
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0) )
-/* for ndo_dfwd_ ops add_station, del_station and _start_xmit */
-#define HAVE_NDO_SELECT_QUEUE_ACCEL_FALLBACK
-#else
-#if !(RHEL_RELEASE_CODE && ((RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,4) \
-                        && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,1)) \
-                        || RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))) && \
-    !(UBUNTU_VERSION_CODE && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,13,0,105))
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0)
+#if !(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(7,0) && \
+			        RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(6,6)) \
+    && !(defined(UBUNTU_VERSION_CODE) && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,13,0,105))
 static inline int pci_msix_vec_count(struct pci_dev *dev)
 {
 	int pos;
@@ -472,11 +485,10 @@ static inline void ether_addr_copy(u8 *dst, const u8 *src)
 #endif
 
 #if ( LINUX_VERSION_CODE >= KERNEL_VERSION(3,15,0) || \
-	(UBUNTU_VERSION_CODE && UBUNTU_VERSION_CODE > UBUNTU_VERSION(3,13,0,24))) || \
+	(defined(UBUNTU_VERSION_CODE) && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,13,0,30))) || \
 	(SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0)) || \
-	(RHEL_RELEASE_CODE && ((RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,4) \
-	                     && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) \
-                           || RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0)))
+	(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(7,0) \
+	                     && RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(7,1))
 #else
 static inline bool u64_stats_fetch_retry_irq(const struct u64_stats_sync *syncp,
 					     unsigned int start)
@@ -491,6 +503,13 @@ static inline unsigned int u64_stats_fetch_begin_irq(const struct u64_stats_sync
 
 #endif
 
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,16,0) && \
+      !(RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,1))))
+
+#define smp_mb__before_atomic()	smp_mb()
+
+#endif
+
 /*****************************************************************************/
 #if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,18,0) )
 #undef GENMASK
@@ -500,11 +519,17 @@ static inline unsigned int u64_stats_fetch_begin_irq(const struct u64_stats_sync
 #endif
 /*****************************************************************************/
 
+#ifndef dma_rmb
+#define dma_rmb rmb
+#endif
+
+#ifndef writel_relaxed
+#define writel_relaxed writel
+#endif
+
 #if ( LINUX_VERSION_CODE >= KERNEL_VERSION(3,19,0) ) \
 	|| (SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(12,0,0)) \
-	|| (RHEL_RELEASE_CODE && ((RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,4) \
-	                        && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,1)) \
-	                        || RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0)))
+	|| (RHEL_RELEASE_CODE && RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(7,0))
 #else
 static inline void netdev_rss_key_fill(void *buffer, size_t len)
 {
@@ -537,7 +562,7 @@ static inline void __napi_schedule_irqoff(struct napi_struct *n)
 	|| (RHEL_RELEASE_CODE && ((RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,7)) && \
 	                          (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))) \
 	                      || RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) \
-	|| (UBUNTU_VERSION_CODE && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,19,0,51))
+	|| (defined(UBUNTU_VERSION_CODE) && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,19,0,51))
 #else
 static inline void napi_complete_done(struct napi_struct *n, int work_done)
 {
@@ -546,7 +571,10 @@ static inline void napi_complete_done(struct napi_struct *n, int work_done)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0) \
-	|| (UBUNTU_VERSION_CODE && UBUNTU_VERSION_CODE >= UBUNTU_VERSION(3,13,0,126))
+	|| (defined(UBUNTU_VERSION_CODE) && \
+	(UBUNTU_VERSION(3,13,0,126) <= UBUNTU_VERSION_CODE && UBUNTU_VERSION_CODE < UBUNTU_VERSION(3,14,0,0))) \
+	|| (RHEL_RELEASE_CODE && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,5))
+
 #else
 
 static inline void ioremap_release(struct device *dev, void *res)
@@ -575,5 +603,232 @@ static inline void __iomem *devm_ioremap_wc(struct device *dev,
 	return addr;
 }
 #endif
+
+#if RHEL_RELEASE_CODE && \
+    RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 5) && \
+    LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+#define ndo_change_mtu ndo_change_mtu_rh74
+#endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0))
+#ifndef dma_zalloc_coherent
+#define dma_zalloc_coherent(d, s, h, f) dma_alloc_coherent(d, s, h, f)
+#endif
+#endif
+
+#ifndef dev_info_once
+#ifdef CONFIG_PRINTK
+#define dev_info_once(dev, fmt, ...)			\
+do {									\
+	static bool __print_once __read_mostly;				\
+									\
+	if (!__print_once) {						\
+		__print_once = true;					\
+		dev_info(dev, fmt, ##__VA_ARGS__);			\
+	}								\
+} while (0)
+#else
+#define dev_info_once(dev, fmt, ...)			\
+do {									\
+	if (0)								\
+		dev_info(dev, fmt, ##__VA_ARGS__);			\
+} while (0)
+#endif
+#endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)) || \
+	(RHEL_RELEASE_CODE && \
+	RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 2))
+#define HAVE_NETDEV_XMIT_MORE
+#endif
+
+#ifndef mmiowb
+#define MMIOWB_NOT_DEFINED
+#endif
+
+/* In the driver we currently only support CRC32 and Toeplitz.
+ * Since in kernel erlier than 4.12 the CRC32 define didn't exist
+ * We define it here to be XOR. Any user who wishes to select CRC32
+ * as the hash function, can do so by choosing xor through ethtool.
+ */
+#ifndef ETH_RSS_HASH_CRC32
+#define ETH_RSS_HASH_CRC32 ETH_RSS_HASH_XOR
+#endif
+
+#ifndef _ULL
+#define _ULL(x) (_AC(x, ULL))
+#endif
+
+#ifndef ULL
+#define ULL(x) (_ULL(x))
+#endif
+
+#ifndef BIT_ULL
+#define BIT_ULL(nr) (ULL(1) << (nr))
+#endif
+
+#ifndef BITS_PER_TYPE
+#define BITS_PER_TYPE(type) (sizeof(type) * BITS_PER_BYTE)
+#endif
+
+#ifndef DIV_ROUND_DOWN_ULL
+#define DIV_ROUND_DOWN_ULL(ll, d) \
+	({ unsigned long long _tmp = (ll); do_div(_tmp, d); _tmp; })
+#endif
+
+/* values are taken from here: https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md */
+
+#if defined(CONFIG_BPF) && LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
+#define ENA_XDP_SUPPORT
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)
+#define XDP_HAS_FRAME_SZ
+#define XDP_CONVERT_TO_FRAME_NAME_CHANGED
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
+#define ENA_XDP_QUERY_IN_KERNEL
+#endif
+
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0) || \
+    (defined(RHEL_RELEASE_CODE) && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 3)))
+#define HAVE_NDO_TX_TIMEOUT_STUCK_QUEUE_PARAMETER
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,19,0) && \
+    !(RHEL_RELEASE_CODE && ((RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(7, 1)) && \
+                            (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6, 6)))) && \
+                            !defined(UBUNTU_VERSION_CODE) && \
+                            !defined(UEK3_RELEASE)
+
+#define DO_ONCE(func, ...)						     \
+	({								     \
+		static bool ___done = false;				     \
+		if (unlikely(!___done)) {				     \
+				func(__VA_ARGS__);			     \
+				___done = true;				     \
+		}							     \
+	})
+
+#define get_random_once(buf, nbytes)					     \
+	DO_ONCE(get_random_bytes, (buf), (nbytes))
+
+#define net_get_random_once(buf, nbytes)				     \
+	get_random_once((buf), (nbytes))
+
+/* RSS keys are 40 or 52 bytes long */
+#define NETDEV_RSS_KEY_LEN 52
+static u8 netdev_rss_key[NETDEV_RSS_KEY_LEN];
+
+static inline void netdev_rss_key_fill(void *buffer, size_t len)
+{
+	BUG_ON(len > sizeof(netdev_rss_key));
+	net_get_random_once(netdev_rss_key, sizeof(netdev_rss_key));
+	memcpy(buffer, netdev_rss_key, len);
+}
+#endif
+
+#ifndef WRITE_ONCE
+#define WRITE_ONCE(x, val) (ACCESS_ONCE(x) = val)
+#endif
+#ifndef READ_ONCE
+#define READ_ONCE(x) ACCESS_ONCE(x)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9 ,0)
+#define ENA_GENERIC_PM_OPS
+#endif
+
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(4, 6 ,0)) && \
+     !(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3)))
+/* Linux versions 4.4.216 - 4.5 (non inclusive) back propagated page_ref_count
+ * function from kernel 4.6. To make things more difficult, Ubuntu didn't add
+ * these changes to its 4.4.* kernels
+ */
+#if !(KERNEL_VERSION(4, 4 ,216) <= LINUX_VERSION_CODE && LINUX_VERSION_CODE < KERNEL_VERSION(4, 5 ,0)) ||\
+      defined(UBUNTU_VERSION_CODE)
+static inline int page_ref_count(struct page *page)
+{
+	return atomic_read(&page->_count);
+}
+#endif /* !(KERNEL_VERSION(4, 4 ,216) <= LINUX_VERSION_CODE && LINUX_VERSION_CODE < KERNEL_VERSION(4, 5 ,0)) */
+
+static inline void page_ref_inc(struct page *page)
+{
+	atomic_inc(&page->_count);
+}
+#endif
+
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)) && \
+     !(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)))
+static inline struct page *dev_alloc_page(void)
+{
+	gfp_t gfp_mask = GFP_ATOMIC | __GFP_NOWARN;
+
+	gfp_mask |= __GFP_COLD | __GFP_COMP;
+
+	return alloc_pages_node(NUMA_NO_NODE, gfp_mask, 0);
+}
+#endif
+
+/* This entry might seem strange because of the #ifndef numa_mem_id(),
+ * but these defines were taken from the Linux kernel
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 34)
+#ifndef numa_mem_id
+#ifdef CONFIG_HAVE_MEMORYLESS_NODES
+static inline int numa_mem_id(void)
+{
+	return __this_cpu_read(_numa_mem_);
+}
+#else /* CONFIG_HAVE_MEMORYLESS_NODES */
+static inline int numa_mem_id(void)
+{
+	return numa_node_id();
+}
+#endif /* CONFIG_HAVE_MEMORYLESS_NODES */
+#endif /* numa_mem_id */
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 34) */
+
+#ifndef fallthrough
+#define fallthrough do {} while (0)  /* fallthrough */
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+#define AF_XDP_BUSY_POLL_SUPPORTED
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)
+#define ENA_LINEAR_FRAG_SUPPORTED
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0)
+#define ENA_NETDEV_LOGS_WITHOUT_RV
+#endif
+
+#if defined(ENA_XDP_SUPPORT) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0)
+static __always_inline void
+xdp_init_buff(struct xdp_buff *xdp, u32 frame_sz, struct xdp_rxq_info *rxq)
+{
+	xdp->rxq = rxq;
+#ifdef XDP_HAS_FRAME_SZ
+	xdp->frame_sz = frame_sz;
+#endif
+}
+
+static __always_inline void
+xdp_prepare_buff(struct xdp_buff *xdp, unsigned char *hard_start,
+		 int headroom, int data_len, const bool meta_valid)
+{
+	unsigned char *data = hard_start + headroom;
+
+	xdp->data_hard_start = hard_start;
+	xdp->data = data;
+	xdp->data_end = data + data_len;
+	xdp->data_meta = meta_valid ? data : data + 1;
+}
+
+#endif /* defined(ENA_XDP_SUPPORT) && LINUX_VERSION_CODE <= KERNEL_VERSION(5, 12, 0) */
 
 #endif /* _KCOMPAT_H_ */

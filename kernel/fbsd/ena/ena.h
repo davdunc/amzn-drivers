@@ -1,7 +1,7 @@
 /*-
- * BSD LICENSE
+ * SPDX-License-Identifier: BSD-2-Clause
  *
- * Copyright (c) 2015-2017 Amazon.com, Inc. or its affiliates.
+ * Copyright (c) 2015-2020 Amazon.com, Inc. or its affiliates.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,9 +39,9 @@
 #include "ena_com/ena_com.h"
 #include "ena_com/ena_eth_com.h"
 
-#define DRV_MODULE_VER_MAJOR	0
-#define DRV_MODULE_VER_MINOR	7
-#define DRV_MODULE_VER_SUBMINOR 1
+#define DRV_MODULE_VER_MAJOR	2
+#define DRV_MODULE_VER_MINOR	4
+#define DRV_MODULE_VER_SUBMINOR 0
 
 #define DRV_MODULE_NAME		"ena"
 
@@ -58,39 +58,39 @@
 #define ENA_DMA_BIT_MASK(x)		((1ULL << (x)) - 1ULL)
 
 /* 1 for AENQ + ADMIN */
-#define	ENA_MAX_MSIX_VEC(io_queues)	(1 + (io_queues))
+#define	ENA_ADMIN_MSIX_VEC		1
+#define	ENA_MAX_MSIX_VEC(io_queues)	(ENA_ADMIN_MSIX_VEC + (io_queues))
 
 #define	ENA_REG_BAR			0
 #define	ENA_MEM_BAR			2
 
 #define	ENA_BUS_DMA_SEGS		32
 
+#define	ENA_DEFAULT_BUF_RING_SIZE	4096
+
 #define	ENA_DEFAULT_RING_SIZE		1024
-#define	ENA_DEFAULT_SMALL_PACKET_LEN	128
-#define	ENA_DEFAULT_MAX_RX_BUFF_ALLOC_SIZE	1536
+#define	ENA_MIN_RING_SIZE		256
 
-#define	ENA_RX_REFILL_THRESH_DEVIDER	8
+/*
+ * Refill Rx queue when number of required descriptors is above
+ * QUEUE_SIZE / ENA_RX_REFILL_THRESH_DIVIDER or ENA_RX_REFILL_THRESH_PACKET
+ */
+#define	ENA_RX_REFILL_THRESH_DIVIDER	8
+#define	ENA_RX_REFILL_THRESH_PACKET	256
 
-#define	ENA_MAX_PUSH_PKT_SIZE		128
-
-#define	ENA_NAME_MAX_LEN		20
 #define	ENA_IRQNAME_SIZE		40
 
 #define	ENA_PKT_MAX_BUFS 		19
-#define	ENA_STALL_TIMEOUT		100
 
 #define	ENA_RX_RSS_TABLE_LOG_SIZE	7
 #define	ENA_RX_RSS_TABLE_SIZE		(1 << ENA_RX_RSS_TABLE_LOG_SIZE)
 
 #define	ENA_HASH_KEY_SIZE		40
 
-#define	ENA_DMA_BITS_MASK		40
 #define	ENA_MAX_FRAME_LEN		10000
 #define	ENA_MIN_FRAME_LEN 		60
-#define	ENA_RX_HASH_KEY_NUM		10
-#define	ENA_RX_THASH_TABLE_SIZE 	(1 << 8)
 
-#define ENA_TX_CLEANUP_TRESHOLD		128
+#define ENA_TX_RESUME_THRESH		(ENA_PKT_MAX_BUFS + 2)
 
 #define DB_THRESHOLD	64
 
@@ -111,18 +111,15 @@
 #define RX_IRQ_INTERVAL 20
 #define TX_IRQ_INTERVAL 50
 
-#define	ENA_MAX_MTU		9216
+#define	ENA_MIN_MTU		128
+
 #define	ENA_TSO_MAXSIZE		65536
-#define	ENA_TSO_NSEGS		ENA_PKT_MAX_BUFS
-#define	ENA_RX_OFFSET		NET_SKB_PAD + NET_IP_ALIGN
 
 #define	ENA_MMIO_DISABLE_REG_READ	BIT(0)
 
 #define	ENA_TX_RING_IDX_NEXT(idx, ring_size) (((idx) + 1) & ((ring_size) - 1))
 
 #define	ENA_RX_RING_IDX_NEXT(idx, ring_size) (((idx) + 1) & ((ring_size) - 1))
-#define	ENA_RX_RING_IDX_ADD(idx, n, ring_size)	\
-	(((idx) + (n)) & ((ring_size) - 1))
 
 #define	ENA_IO_TXQ_IDX(q)		(2 * (q))
 #define	ENA_IO_RXQ_IDX(q)		(2 * (q) + 1)
@@ -130,6 +127,8 @@
 #define	ENA_MGMNT_IRQ_IDX		0
 #define	ENA_IO_IRQ_FIRST_IDX		1
 #define	ENA_IO_IRQ_IDX(q)		(ENA_IO_IRQ_FIRST_IDX + (q))
+
+#define	ENA_MAX_NO_INTERRUPT_ITERATIONS	3
 
 /*
  * ENA device should send keep alive msg every 1 sec.
@@ -151,10 +150,37 @@
  */
 #define	PCI_VENDOR_ID_AMAZON	0x1d0f
 
-#define	PCI_DEV_ID_ENA_PF	0x0ec2
-#define	PCI_DEV_ID_ENA_LLQ_PF	0x1ec2
-#define	PCI_DEV_ID_ENA_VF	0xec20
-#define	PCI_DEV_ID_ENA_LLQ_VF	0xec21
+#define	PCI_DEV_ID_ENA_PF		0x0ec2
+#define	PCI_DEV_ID_ENA_PF_RSERV0	0x1ec2
+#define	PCI_DEV_ID_ENA_VF		0xec20
+#define	PCI_DEV_ID_ENA_VF_RSERV0	0xec21
+
+/*
+ * Flags indicating current ENA driver state
+ */
+enum ena_flags_t {
+	ENA_FLAG_DEVICE_RUNNING,
+	ENA_FLAG_DEV_UP,
+	ENA_FLAG_LINK_UP,
+	ENA_FLAG_MSIX_ENABLED,
+	ENA_FLAG_TRIGGER_RESET,
+	ENA_FLAG_ONGOING_RESET,
+	ENA_FLAG_DEV_UP_BEFORE_RESET,
+	ENA_FLAG_RSS_ACTIVE,
+	ENA_FLAGS_NUMBER = ENA_FLAG_RSS_ACTIVE
+};
+
+BITSET_DEFINE(_ena_state, ENA_FLAGS_NUMBER);
+typedef struct _ena_state ena_state_t;
+
+#define ENA_FLAG_ZERO(adapter)		\
+	BIT_ZERO(ENA_FLAGS_NUMBER, &(adapter)->flags)
+#define ENA_FLAG_ISSET(bit, adapter)	\
+	BIT_ISSET(ENA_FLAGS_NUMBER, (bit), &(adapter)->flags)
+#define ENA_FLAG_SET_ATOMIC(bit, adapter)	\
+	BIT_SET_ATOMIC(ENA_FLAGS_NUMBER, (bit), &(adapter)->flags)
+#define ENA_FLAG_CLEAR_ATOMIC(bit, adapter)	\
+	BIT_CLR_ATOMIC(ENA_FLAGS_NUMBER, (bit), &(adapter)->flags)
 
 struct msix_entry {
 	int entry;
@@ -162,15 +188,15 @@ struct msix_entry {
 };
 
 typedef struct _ena_vendor_info_t {
-	unsigned int vendor_id;
-	unsigned int device_id;
+	uint16_t vendor_id;
+	uint16_t device_id;
 	unsigned int index;
 } ena_vendor_info_t;
 
 struct ena_irq {
 	/* Interrupt resources */
 	struct resource *res;
-	driver_intr_t *handler;
+	driver_filter_t *handler;
 	void *data;
 	void *cookie;
 	unsigned int vector;
@@ -183,9 +209,34 @@ struct ena_que {
 	struct ena_adapter *adapter;
 	struct ena_ring *tx_ring;
 	struct ena_ring *rx_ring;
+
+	struct task cleanup_task;
+	struct taskqueue *cleanup_tq;
+
 	uint32_t id;
 	int cpu;
+	struct sysctl_oid *oid;
 };
+
+struct ena_calc_queue_size_ctx {
+	struct ena_com_dev_get_features_ctx *get_feat_ctx;
+	struct ena_com_dev *ena_dev;
+	device_t pdev;
+	uint32_t tx_queue_size;
+	uint32_t rx_queue_size;
+	uint32_t max_tx_queue_size;
+	uint32_t max_rx_queue_size;
+	uint16_t max_tx_sgl_size;
+	uint16_t max_rx_sgl_size;
+};
+
+#ifdef DEV_NETMAP
+struct ena_netmap_tx_info {
+	uint32_t socket_buf_idx[ENA_PKT_MAX_BUFS];
+	bus_dmamap_t map_seg[ENA_PKT_MAX_BUFS];
+	unsigned int sockets_used;
+};
+#endif
 
 struct ena_tx_buffer {
 	struct mbuf *mbuf;
@@ -194,11 +245,16 @@ struct ena_tx_buffer {
 	unsigned int tx_descs;
 	/* # of buffers used by this mbuf */
 	unsigned int num_of_bufs;
-	bus_dmamap_t map;
+
+	bus_dmamap_t dmamap;
 
 	/* Used to detect missing tx packets */
 	struct bintime timestamp;
 	bool print_once;
+
+#ifdef DEV_NETMAP
+	struct ena_netmap_tx_info nm_info;
+#endif /* DEV_NETMAP */
 
 	struct ena_com_buf bufs[ENA_PKT_MAX_BUFS];
 } __aligned(CACHE_LINE_SIZE);
@@ -207,33 +263,24 @@ struct ena_rx_buffer {
 	struct mbuf *mbuf;
 	bus_dmamap_t map;
 	struct ena_com_buf ena_buf;
+#ifdef DEV_NETMAP
+	uint32_t netmap_buf_idx;
+#endif /* DEV_NETMAP */
 } __aligned(CACHE_LINE_SIZE);
-
-#ifdef ENA_DEBUG
-struct ena_current_state {
-	uint64_t rx_sq_state;
-	uint64_t tx_sq_state;
-};
-#endif
 
 struct ena_stats_tx {
 	counter_u64_t cnt;
 	counter_u64_t bytes;
-	counter_u64_t queue_stop;
 	counter_u64_t prepare_ctx_err;
-	counter_u64_t queue_wakeup;
 	counter_u64_t dma_mapping_err;
-	/* Not counted */
-	counter_u64_t unsupported_desc_num;
-	/* Not counted */
-	counter_u64_t napi_comp;
-	/* Not counted */
-	counter_u64_t tx_poll;
 	counter_u64_t doorbells;
 	counter_u64_t missing_tx_comp;
 	counter_u64_t bad_req_id;
 	counter_u64_t collapse;
 	counter_u64_t collapse_err;
+	counter_u64_t queue_wakeup;
+	counter_u64_t queue_stop;
+	counter_u64_t llq_buffer_copy;
 };
 
 struct ena_stats_rx {
@@ -241,34 +288,41 @@ struct ena_stats_rx {
 	counter_u64_t bytes;
 	counter_u64_t refil_partial;
 	counter_u64_t bad_csum;
-	/* Not counted */
-	counter_u64_t page_alloc_fail;
+	counter_u64_t mjum_alloc_fail;
 	counter_u64_t mbuf_alloc_fail;
 	counter_u64_t dma_mapping_err;
 	counter_u64_t bad_desc_num;
-	/* Not counted */
-	counter_u64_t small_copy_len_pkt;
+	counter_u64_t bad_req_id;
+	counter_u64_t empty_rx_ring;
 };
 
-
 struct ena_ring {
-	/* Holds the empty requests for TX out of order completions */
-	uint16_t *free_tx_ids;
+	/* Holds the empty requests for TX/RX out of order completions */
+	union {
+		uint16_t *free_tx_ids;
+		uint16_t *free_rx_ids;
+	};
 	struct ena_com_dev *ena_dev;
 	struct ena_adapter *adapter;
 	struct ena_com_io_cq *ena_com_io_cq;
 	struct ena_com_io_sq *ena_com_io_sq;
 
-	/* The maximum length the driver can push to the device (For LLQ) */
-	enum ena_admin_placement_policy_type tx_mem_queue_type;
-	uint16_t rx_small_copy_len;
 	uint16_t qid;
-	uint16_t mtu;
-	uint8_t tx_max_header_size;
+
+	/* Determines if device will use LLQ or normal mode for TX */
+	enum ena_admin_placement_policy_type tx_mem_queue_type;
+	union {
+		/* The maximum length the driver can push to the device (For LLQ) */
+		uint8_t tx_max_header_size;
+		/* The maximum (and default) mbuf size for the Rx descriptor. */
+		uint16_t rx_mbuf_sz;
+
+	};
+
+	bool first_interrupt;
+	uint16_t no_interrupt_event_cnt;
 
 	struct ena_com_rx_buf_info ena_bufs[ENA_PKT_MAX_BUFS];
-	uint32_t  smoothed_interval;
-	enum ena_intr_moder_level moder_tbl_idx;
 
 	struct ena_que *que;
 	struct lro_ctrl lro;
@@ -283,46 +337,54 @@ struct ena_ring {
 	int ring_size; /* number of tx/rx_buffer_info's entries */
 
 	struct buf_ring *br; /* only for TX */
+	uint32_t buf_ring_size;
+
 	struct mtx ring_mtx;
 	char mtx_name[16];
-	struct task enqueue_task;
-	struct taskqueue *enqueue_tq;
-	struct task cmpl_task;
-	struct taskqueue *cmpl_tq;
+
+	struct {
+		struct task enqueue_task;
+		struct taskqueue *enqueue_tq;
+	};
 
 	union {
 		struct ena_stats_tx tx_stats;
 		struct ena_stats_rx rx_stats;
 	};
 
-#ifdef ENA_DEBUG
-	struct ena_current_state state;
-#endif
+	union {
+		int empty_rx_queue;
+		/* For Tx ring to indicate if it's running or not */
+		bool running;
+	};
+
+	/* How many packets are sent in one Tx loop, used for doorbells */
+	uint32_t acum_pkts;
+
+	/* Used for LLQ */
+	uint8_t *push_buf_intermediate_buf;
+
+#ifdef DEV_NETMAP
+	bool initialized;
+#endif /* DEV_NETMAP */
 } __aligned(CACHE_LINE_SIZE);
 
 struct ena_stats_dev {
-	/* Not counted */
-	counter_u64_t tx_timeout;
-	/* Not counted */
-	counter_u64_t io_suspend;
-	/* Not counted */
-	counter_u64_t io_resume;
-	/* Not counted */
 	counter_u64_t wd_expired;
 	counter_u64_t interface_up;
 	counter_u64_t interface_down;
-	/* Not counted */
 	counter_u64_t admin_q_pause;
 };
 
 struct ena_hw_stats {
-	uint64_t rx_packets;
-	uint64_t tx_packets;
+	counter_u64_t rx_packets;
+	counter_u64_t tx_packets;
 
-	uint64_t rx_bytes;
-	uint64_t tx_bytes;
+	counter_u64_t rx_bytes;
+	counter_u64_t tx_bytes;
 
-	uint64_t rx_drops;
+	counter_u64_t rx_drops;
+	counter_u64_t tx_drops;
 };
 
 /* Board specific private data structure */
@@ -335,14 +397,14 @@ struct ena_adapter {
 	struct ifmedia	media;
 
 	/* OS resources */
-	struct resource * memory;
-	struct resource * registers;
+	struct resource *memory;
+	struct resource *registers;
+	struct resource *msix;
+	int msix_rid;
 
-	struct mtx global_mtx;
-	struct sx ioctl_sx;
+	struct sx global_lock;
 
 	/* MSI-X */
-	uint32_t msix_enabled;
 	struct msix_entry *msix_entries;
 	int msix_vecs;
 
@@ -350,41 +412,32 @@ struct ena_adapter {
 	bus_dma_tag_t tx_buf_tag;
 	bus_dma_tag_t rx_buf_tag;
 	int dma_width;
-	/*
-	 * RX packets that shorter that this len will be copied to the skb
-	 * header
-	 */
-	unsigned int small_copy_len;
+
+	uint32_t max_mtu;
+
+	uint32_t num_io_queues;
+	uint32_t max_num_io_queues;
+
+	uint32_t requested_tx_ring_size;
+	uint32_t requested_rx_ring_size;
+
+	uint32_t max_tx_ring_size;
+	uint32_t max_rx_ring_size;
 
 	uint16_t max_tx_sgl_size;
 	uint16_t max_rx_sgl_size;
 
 	uint32_t tx_offload_cap;
 
-	/* Tx fast path data */
-	int num_queues;
-
-	unsigned int tx_usecs, rx_usecs; /* Interrupt coalescing */
-
-	unsigned int tx_ring_size;
-	unsigned int rx_ring_size;
+	uint32_t buf_ring_size;
 
 	/* RSS*/
-	uint8_t	 rss_ind_tbl[ENA_RX_RSS_TABLE_SIZE];
-	bool rss_support;
-
-	uint32_t msg_enable;
+	uint8_t	rss_ind_tbl[ENA_RX_RSS_TABLE_SIZE];
 
 	uint8_t mac_addr[ETHER_ADDR_LEN];
 	/* mdio and phy*/
 
-	char name[ENA_NAME_MAX_LEN];
-	bool link_status;
-	bool trigger_reset;
-	bool up;
-	bool running;
-
-	uint32_t wol;
+	ena_state_t flags;
 
 	/* Queue will represent one TX and one RX ring */
 	struct ena_que que[ENA_MAX_NUM_IO_QUEUES]
@@ -411,30 +464,31 @@ struct ena_adapter {
 	sbintime_t missing_tx_timeout;
 	uint32_t missing_tx_max_queues;
 	uint32_t missing_tx_threshold;
+	bool disable_meta_caching;
 
-	/* Task updating hw stats */
-	struct task stats_task;
-	struct taskqueue *stats_tq;
+	uint16_t eni_metrics_sample_interval;
+	uint16_t eni_metrics_sample_interval_cnt;
 
 	/* Statistics */
 	struct ena_stats_dev dev_stats;
 	struct ena_hw_stats hw_stats;
+	struct ena_admin_eni_stats eni_metrics;
+
+	enum ena_regs_reset_reason_types reset_reason;
 };
-
-
-#define	ENA_DEV_LOCK			mtx_lock(&adapter->global_mtx)
-#define	ENA_DEV_UNLOCK			mtx_unlock(&adapter->global_mtx)
 
 #define	ENA_RING_MTX_LOCK(_ring)		mtx_lock(&(_ring)->ring_mtx)
 #define	ENA_RING_MTX_TRYLOCK(_ring)		mtx_trylock(&(_ring)->ring_mtx)
 #define	ENA_RING_MTX_UNLOCK(_ring)		mtx_unlock(&(_ring)->ring_mtx)
 
-struct ena_dev *ena_efa_enadev_get(device_t pdev);
+#define ENA_LOCK_INIT(adapter)			\
+	sx_init(&(adapter)->global_lock, "ENA global lock")
+#define ENA_LOCK_DESTROY(adapter)	sx_destroy(&(adapter)->global_lock)
+#define ENA_LOCK_LOCK(adapter)		sx_xlock(&(adapter)->global_lock)
+#define ENA_LOCK_UNLOCK(adapter)	sx_unlock(&(adapter)->global_lock)
 
-int ena_register_adapter(struct ena_adapter *adapter);
-void ena_unregister_adapter(struct ena_adapter *adapter);
-
-int ena_update_stats_counters(struct ena_adapter *adapter);
+#define clamp_t(type, _x, min, max)	min_t(type, max_t(type, _x, min), max)
+#define clamp_val(val, lo, hi)		clamp_t(__typeof(val), val, lo, hi)
 
 static inline int ena_mbuf_count(struct mbuf *mbuf)
 {
@@ -444,6 +498,27 @@ static inline int ena_mbuf_count(struct mbuf *mbuf)
 		++count;
 
 	return count;
+}
+
+int	ena_up(struct ena_adapter *adapter);
+void	ena_down(struct ena_adapter *adapter);
+int	ena_restore_device(struct ena_adapter *adapter);
+void	ena_destroy_device(struct ena_adapter *adapter, bool graceful);
+int	ena_refill_rx_bufs(struct ena_ring *rx_ring, uint32_t num);
+int	ena_update_buf_ring_size(struct ena_adapter *adapter,
+    uint32_t new_buf_ring_size);
+int	ena_update_queue_size(struct ena_adapter *adapter, uint32_t new_tx_size,
+    uint32_t new_rx_size);
+int	ena_update_io_queue_nb(struct ena_adapter *adapter, uint32_t new_num);
+
+static inline void
+ena_trigger_reset(struct ena_adapter *adapter,
+    enum ena_regs_reset_reason_types reset_reason)
+{
+	if (likely(!ENA_FLAG_ISSET(ENA_FLAG_TRIGGER_RESET, adapter))) {
+		adapter->reset_reason = reset_reason;
+		ENA_FLAG_SET_ATOMIC(ENA_FLAG_TRIGGER_RESET, adapter);
+	}
 }
 
 #endif /* !(ENA_H) */
